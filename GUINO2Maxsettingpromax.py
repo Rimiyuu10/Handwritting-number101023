@@ -1,84 +1,95 @@
 import tkinter as tk
-from tkinter import Canvas, messagebox, Label
+from tkinter import *
+from tkinter import messagebox
 from PIL import Image, ImageTk
 import os
-import numpy as np
 import cv2
+import numpy as np
+import pandas as pd
+import pyscreenshot as ImageGrab
 import tensorflow as tf
 from tensorflow.keras.models import Sequential
-from tensorflow.keras.layers import Conv2D, MaxPooling2D, Flatten, Dense
+from tensorflow.keras.layers import Conv2D, MaxPooling2D, Flatten, Dense, Dropout
 from tensorflow.keras.utils import to_categorical
-from tensorflow.keras.models import load_model
-from pyscreenshot import grab
+from sklearn.model_selection import train_test_split
 
-# Initialize main window
+# Màn hình chính
 window = tk.Tk()
-window.title("Nhận diện chữ viết tay bằng CNN")
-window.geometry("800x680")
+window.title("Nhận diện chữ viết tay (CNN)")
 window.resizable(0, 0)
 
+# Canvas Setup
 canvas1 = Canvas(window, width=500, height=250, bg='ivory')
 canvas1.place(x=5, y=120)
 
+# Ký tự nhập vào và dataset
 l1 = tk.Label(canvas1, text="Nhập và tạo", font=('Times New Roman', 20))
 l1.place(x=5, y=0)
 
 t1 = tk.Entry(canvas1, width=20, border=5)
 t1.place(x=150, y=0)
 
-# Paths
-dataset_path = r"dataset.npy"
-labels_path = r"labels.npy"
-model_path = r"digit_recognizer_cnn.h5"
 
-# Functions for dataset generation and training
-def generate_dataset():
+BASE_PATH = r"C:\Users\admin\Downloads\code py\XLAVTG\XLAVTG"
+IMAGES_FOLDER = os.path.join(BASE_PATH, "captured_images")
+DATASET_PATH = os.path.join(BASE_PATH, "dataset.csv")
+MODEL_PATH = os.path.join(BASE_PATH, "model", "digit_recognizer_cnn.h5")
+
+def screen_capture():
     digit_label = t1.get()
-    if not digit_label.isdigit():
-        messagebox.showerror("Lỗi", "Vui lòng nhập một chữ số hợp lệ.")
-        return
-
-    digit_label = int(digit_label)
-    images_folder = "captured_images"
-    os.makedirs(images_folder, exist_ok=True)
-    digit_folder = os.path.join(images_folder, str(digit_label))
+    digit_folder = os.path.join(IMAGES_FOLDER, digit_label)
     os.makedirs(digit_folder, exist_ok=True)
 
-    for i in range(5):
-        img = grab(bbox=(50, 200, 411, 482))
-        img_path = os.path.join(digit_folder, f"{i}.png")
-        img.save(img_path)
+    paint_path = r"C:\ProgramData\Microsoft\Windows\Start Menu\Programs\Accessories\Paint"
+    os.startfile(paint_path)
 
-    messagebox.showinfo("Kết quả", "Tạo dữ liệu thành công!")
+    import time
+    time.sleep(15)
 
-b1 = tk.Button(canvas1, text="1. Tạo dữ liệu", font=('Times New Roman', 15), bg="orange", command=generate_dataset)
-b1.place(x=5, y=50)
+    for i in range(0, 5):
+        time.sleep(8)
+        im = ImageGrab.grab(bbox=(50, 200, 411, 482))
+        im.save(os.path.join(digit_folder, f"{i}.png"))
+        print(f"Đã lưu: {digit_folder}/{i}.png")
+        print("Xóa màn hình và vẽ lại.")
 
-def prepare_data():
-    images_folder = "captured_images"
-    data, labels = [], []
+    messagebox.showinfo("Result", "Chụp màn hình đã xong !!")
 
-    for label in os.listdir(images_folder):
-        label_folder = os.path.join(images_folder, label)
-        for img_path in os.listdir(label_folder):
-            img = cv2.imread(os.path.join(label_folder, img_path), cv2.IMREAD_GRAYSCALE)
-            img = cv2.resize(img, (28, 28))
-            data.append(img)
-            labels.append(int(label))
+def generate_dataset():
+    header = ["label"] + [f"pixel{i}" for i in range(784)]
+    with open(DATASET_PATH, 'w') as f:
+        f.write(','.join(header) + '\n')
 
-    data = np.array(data).reshape(-1, 28, 28, 1) / 255.0
-    labels = to_categorical(labels, 10)
+    for label in range(10):
+        dirList = glob.glob(f"{IMAGES_FOLDER}/{label}/*.png")
+        for img_path in dirList:
+            im = cv2.imread(img_path)
+            im_gray = cv2.cvtColor(im, cv2.COLOR_BGR2GRAY)
+            im_gray = cv2.GaussianBlur(im_gray, (15, 15), 0)
+            roi = cv2.resize(im_gray, (28, 28), interpolation=cv2.INTER_AREA)
 
-    np.save(dataset_path, data)
-    np.save(labels_path, labels)
-    messagebox.showinfo("Kết quả", "Dữ liệu đã được chuẩn bị.")
+            data = [label]
+            for row in roi:
+                data.extend([1 if pixel > 100 else 0 for pixel in row])
 
-b2 = tk.Button(canvas1, text="2. Chuẩn bị dữ liệu", font=('Times New Roman', 15), bg="pink", command=prepare_data)
-b2.place(x=5, y=100)
+            with open(DATASET_PATH, 'a') as f:
+                f.write(','.join(map(str, data)) + '\n')
 
-def train_model():
-    data = np.load(dataset_path)
-    labels = np.load(labels_path)
+    messagebox.showinfo("Kết quả", "Tạo tập dữ liệu hoàn thành!!!")
+
+def train_save_accuracy():
+    #Đoc data
+    data = pd.read_csv(DATASET_PATH)
+
+    X = data.drop("label", axis=1).values
+    y = data["label"].values
+
+    X = X.reshape(-1, 28, 28, 1) / 255.0
+    y = to_categorical(y, num_classes=10)
+
+
+    train_x, test_x, train_y, test_y = train_test_split(X, y, test_size=0.2, random_state=42)
+
 
     model = Sequential([
         Conv2D(32, (3, 3), activation='relu', input_shape=(28, 28, 1)),
@@ -86,62 +97,111 @@ def train_model():
         Conv2D(64, (3, 3), activation='relu'),
         MaxPooling2D((2, 2)),
         Flatten(),
-        Dense(128, activation='relu'),
+        Dense(64, activation='relu'),
+        Dropout(0.5),
         Dense(10, activation='softmax')
     ])
 
-    model.compile(optimizer='adam', loss='categorical_crossentropy', metrics=['accuracy'])
 
-    model.fit(data, labels, epochs=10, validation_split=0.2, batch_size=32)
-    model.save(model_path)
+    model.compile(optimizer='adam',
+                  loss='categorical_crossentropy',
+                  metrics=['accuracy'])
 
-    messagebox.showinfo("Kết quả", "Huấn luyện mô hình thành công!")
 
-b3 = tk.Button(canvas1, text="3. Huấn luyện mô hình", font=('Times New Roman', 15), bg="green", command=train_model)
+    history = model.fit(train_x, train_y,
+                        validation_split=0.2,
+                        epochs=10,
+                        batch_size=32)
+
+    test_loss, test_accuracy = model.evaluate(test_x, test_y)
+
+
+    os.makedirs(os.path.dirname(MODEL_PATH), exist_ok=True)
+    model.save(MODEL_PATH)
+
+    messagebox.showinfo("Kết quả", f"Độ chính xác của mô hình là: {test_accuracy*100:.2f}%")
+
+def prediction():
+
+    model = tf.keras.models.load_model(MODEL_PATH)
+
+    img = ImageGrab.grab(bbox=(130, 500, 500, 700))
+    img.save("paint.png")
+
+
+    im = cv2.imread("paint.png")
+    load = Image.open("paint.png")
+    load = load.resize((280, 280))
+    photo = ImageTk.PhotoImage(load)
+
+
+    img_label = Label(canvas3, image=photo, width=280, height=280)
+    img_label.image = photo
+    img_label.place(x=0, y=0)
+
+
+    im_gray = cv2.cvtColor(im, cv2.COLOR_BGR2GRAY)
+    im_gray = cv2.GaussianBlur(im_gray, (15, 15), 0)
+    _, im_th = cv2.threshold(im_gray, 100, 255, cv2.THRESH_BINARY)
+    roi = cv2.resize(im_th, (28, 28), interpolation=cv2.INTER_AREA)
+
+
+    X = roi.reshape(1, 28, 28, 1) / 255.0
+
+    predictions = model.predict(X)
+    predicted_digit = np.argmax(predictions)
+
+
+    a1 = tk.Label(canvas3, text="Predictions=  ", font=("Times New Roman", 20))
+    a1.place(x=5, y=350)
+
+    b1 = tk.Label(canvas3, text=str(predicted_digit), font=("Times New Roman", 20))
+    b1.place(x=200, y=350)
+
+# nút Setup
+b1 = tk.Button(canvas1, text="1. Mở pain và tạo hình dữ liệu",
+               font=('Times New Roman', 15), bg="orange", fg="black", command=screen_capture)
+b1.place(x=5, y=50)
+
+b2 = tk.Button(canvas1, text="2. Tạo tập dữ liệu", font=('Times New Roman', 15),
+               bg="pink", fg="blue", command=generate_dataset)
+b2.place(x=5, y=100)
+
+b3 = tk.Button(canvas1, text="3. Huấn luyện mô hình CNN",
+               font=('Times New Roman', 15), bg="green", fg="white", command=train_save_accuracy)
 b3.place(x=5, y=150)
 
-def predict_digit():
-    if not os.path.exists(model_path):
-        messagebox.showerror("Lỗi", "Không tìm thấy mô hình. Vui lòng huấn luyện mô hình trước.")
-        return
-
-    img = grab(bbox=(130, 500, 500, 700))
-    img.save("temp.png")
-
-    img = cv2.imread("temp.png", cv2.IMREAD_GRAYSCALE)
-    img = cv2.resize(img, (28, 28)).reshape(1, 28, 28, 1) / 255.0
-
-    model = load_model(model_path)
-    prediction = np.argmax(model.predict(img), axis=-1)[0]
-
-    messagebox.showinfo("Kết quả", f"Chữ số dự đoán: {prediction}")
-
-b4 = tk.Button(canvas1, text="4. Dự đoán", font=('Times New Roman', 15), bg="white", command=predict_digit)
+b4 = tk.Button(canvas1, text="4. Dự đoán trực tiếp", font=('Times New Roman', 15),
+               bg="white", fg="red", command=prediction)
 b4.place(x=5, y=200)
 
-# Canvas for drawing
+# vẽ canvas
 canvas2 = Canvas(window, width=500, height=250, bg='black')
 canvas2.place(x=5, y=380)
 
-lastx, lasty = None, None
-
 def activate_paint(e):
     global lastx, lasty
-    lastx, lasty = e.x, e.y
     canvas2.bind('<B1-Motion>', paint)
+    lastx, lasty = e.x, e.y
 
 def paint(e):
     global lastx, lasty
     x, y = e.x, e.y
-    canvas2.create_line((lastx, lasty, x, y), width=10, fill='white')
+    canvas2.create_line((lastx, lasty, x, y), width=40, fill=('white'))
     lastx, lasty = x, y
 
 canvas2.bind('<1>', activate_paint)
 
-def clear_canvas():
+def clear():
     canvas2.delete("all")
 
-clear_btn = tk.Button(canvas2, text="Clear", fg="white", bg="red", command=clear_canvas)
-clear_btn.place(x=0, y=0)
+btn = tk.Button(canvas2, text="clear", fg="white", bg="green", command=clear)
+btn.place(x=0, y=0)
 
+#
+canvas3 = Canvas(window, width=280, height=530, bg='green')
+canvas3.place(x=500, y=120)
+
+# man hinh config
+window.geometry("800x680")
 window.mainloop()
